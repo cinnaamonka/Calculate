@@ -1,18 +1,11 @@
 ﻿#include <iostream>
 #include <random>
 #include <vector>
-#include <mutex>
 #include <thread>
 #include <chrono>
-#include <numeric>
 #include <functional>
-#include <iomanip>
 #include <future>
-#include <algorithm>
 #include <execution>
-
-int in = 0;
-int total = 0;
 
 constexpr uint64_t ITERATIONS = static_cast<uint64_t>(1e8);
 
@@ -42,33 +35,29 @@ double CalculatePi(uint64_t const start, uint64_t const end)
     return 4 * sum;
 }
 
-double CalculatePiMultithreaded(uint64_t const iterations,
-    size_t const numThreads = std::thread::hardware_concurrency())
+double CalculatePiMultithreaded(uint64_t const iterations, size_t const numThreads)
 {
-    std::vector<std::jthread*> threads(numThreads);
+    std::vector<std::jthread> threads(numThreads);
     uint64_t const chunk = iterations / numThreads;
     std::vector<double> sums(numThreads);
 
     for (size_t i = 0; i < numThreads; i++)
     {
-        threads[i] = new std::jthread([=, &sums]()
+        threads[i] = std::jthread([=, &sums]()
             {
                 auto const result = CalculatePi(i * chunk, (i + 1) * chunk);
                 sums[i] = result;
             });
     }
 
-    for (std::jthread* t : threads)
-    {
-        delete t;
-    }
+    threads.clear();
 
     std::sort(sums.begin(), sums.end(), [](double a, double b) { return b < a; });
+
     return std::accumulate(sums.begin(), sums.end(), 0.0);
 }
 
-double CalculatePiMultithreadedWithFutureAndPromises(uint64_t const iterations,
-    size_t const numThreads = std::thread::hardware_concurrency())
+double CalculatePiMultithreadedWithFutureAndPromises(uint64_t const iterations, size_t const numThreads)
 {
     std::vector<std::jthread> threads(numThreads);
     uint64_t const chunk = iterations / numThreads;
@@ -95,8 +84,7 @@ double CalculatePiMultithreadedWithFutureAndPromises(uint64_t const iterations,
     return std::accumulate(sums.begin(), sums.end(), 0.0);
 }
 
-double CalculatePiMultithreadedWithAsync(uint64_t const iterations,
-    size_t const numThreads = std::thread::hardware_concurrency())
+double CalculatePiMultithreadedWithAsync(uint64_t const iterations, size_t const numThreads)
 {
     std::vector<std::future<double>> futures;
     uint64_t const chunk = iterations / numThreads;
@@ -120,8 +108,7 @@ double CalculatePiMultithreadedWithAsync(uint64_t const iterations,
 }
 
 template <typename ExecutionPolicy>
-double CalculatePiMultithreadedWithPolicy(uint64_t const iterations,
-    size_t const numThreads = std::thread::hardware_concurrency(),
+double CalculatePiMultithreadedWithPolicy(uint64_t const iterations, size_t const numThreads,
     ExecutionPolicy policy = std::execution::par)
 {
     std::vector<std::future<double>> futures(numThreads);
@@ -143,8 +130,7 @@ double CalculatePiMultithreadedWithPolicy(uint64_t const iterations,
     return result;
 }
 
-double CalculatePiMultithreadedWithSTL(uint64_t const iterations,
-    size_t const numThreads = std::thread::hardware_concurrency())
+double CalculatePiMultithreadedWithSTL(uint64_t const iterations, size_t const numThreads)
 {
     std::vector<std::future<double>> futures(numThreads);
     uint64_t const chunk = iterations / numThreads;
@@ -188,6 +174,9 @@ double MeasureTime(std::function<void(void)> const fn)
 
 void SingleThreadedExecution()
 {
+    int in = 0;
+    int total = 0;
+
     auto start = std::chrono::steady_clock::now();
 
     CountPoints(ITERATIONS, in, total);
@@ -202,76 +191,83 @@ int main()
 {
     SingleThreadedExecution();
 
-    double pi{};
-    auto execTime = MeasureTime([&pi]() {
-        pi = CalculatePiMultithreaded(ITERATIONS);
-        });
+    static const size_t threadsCount = std::thread::hardware_concurrency();
 
+    try
+    {
+        double pi{};
+        auto execTime = MeasureTime([&pi]() {
+            pi = CalculatePiMultithreaded(ITERATIONS, threadsCount);
+            });
 
-    std::cout << "Multi-threaded execution time: " << std::setprecision(2) << execTime << " seconds" << std::endl;
-    std::cout << "Calculated PI is: " << std::fixed << std::setprecision(5) << pi << std::endl;
+        std::cout << "Multi-threaded execution time: " << std::setprecision(2) << execTime << " seconds" << std::endl;
+        std::cout << "Calculated PI is: " << std::fixed << std::setprecision(5) << pi << std::endl;
 
-    double pi2{};
-    auto execTime2 = MeasureTime([&pi2]() {
-        pi2 = CalculatePiMultithreadedWithFutureAndPromises(ITERATIONS);
-        });
+        double pi2{};
+        auto execTime2 = MeasureTime([&pi2]() {
+            pi2 = CalculatePiMultithreadedWithFutureAndPromises(ITERATIONS, threadsCount);
+            });
 
+        std::cout << "Multi-threaded execution with future and promises time: " << std::setprecision(2) << execTime2 << " seconds" << std::endl;
+        std::cout << "Calculated PI is: " << std::fixed << std::setprecision(5) << pi2 << std::endl;
 
-    std::cout << "Multi-threaded execution with future and promises time: " << std::setprecision(2) << execTime2 << " seconds" << std::endl;
-    std::cout << "Calculated PI is: " << std::fixed << std::setprecision(5) << pi2 << std::endl;
+        double pi3{};
+        auto execTime3 = MeasureTime([&pi3]() {
+            pi3 = CalculatePiMultithreadedWithAsync(ITERATIONS, threadsCount);
+            });
 
-    double pi3{};
-    auto execTime3 = MeasureTime([&pi3]() {
-        pi3 = CalculatePiMultithreadedWithAsync(ITERATIONS);
-        });
+        std::cout << "Multi-threaded execution with async time: " << std::setprecision(2) << execTime3 << " seconds" << std::endl;
+        std::cout << "Calculated PI is: " << std::fixed << std::setprecision(5) << pi3 << std::endl;
 
+        double pi4{};
+        auto execTime4 = MeasureTime([&pi4]() {
+            pi4 = CalculatePiMultithreadedWithSTL(ITERATIONS, threadsCount);
+            });
 
-    std::cout << "Multi-threaded execution with async time: " << std::setprecision(2) << execTime3 << " seconds" << std::endl;
-    std::cout << "Calculated PI is: " << std::fixed << std::setprecision(5) << pi3 << std::endl;
+        std::cout << "Multi-threaded execution with STL: " << std::setprecision(2) << execTime4 << " seconds" << std::endl;
+        std::cout << "Calculated PI is: " << std::fixed << std::setprecision(5) << pi4 << std::endl;
 
-    double pi4{};
-    auto execTime4 = MeasureTime([&pi4]() {
-        pi4 = CalculatePiMultithreadedWithSTL(ITERATIONS);
-        });
+        double pi5{};
+        auto execTime5 = MeasureTime([&pi5]() {
+            pi5 = CalculatePiMultithreadedWithPolicy(ITERATIONS, threadsCount, std::execution::seq);
+            });
 
-    std::cout << "Multi-threaded execution with STL: " << std::setprecision(2) << execTime4 << " seconds" << std::endl;
-    std::cout << "Calculated PI is: " << std::fixed << std::setprecision(5) << pi4 << std::endl;
+        std::cout << "Parallel execution policy:\n";
+        std::cout << "Result: " << pi5 << std::endl;
+        std::cout << "Time taken: " << execTime5 << " seconds\n\n";
 
-    double pi5{};
-    auto execTime5 = MeasureTime([&pi5]() {
-        pi5 = CalculatePiMultithreadedWithPolicy(ITERATIONS, std::thread::hardware_concurrency(), std::execution::seq);
-        });
+        double pi6{};
+        auto execTime6 = MeasureTime([&pi6]() {
+            pi6 = CalculatePiMultithreadedWithPolicy(ITERATIONS, threadsCount, std::execution::seq);
+            });
 
-    std::cout << "Parallel execution policy:\n";
-    std::cout << "Result: " << pi5 << std::endl;
-    std::cout << "Time taken: " << execTime5 << " seconds\n\n";
+        std::cout << "Sequential execution policy:\n";
+        std::cout << "Result: " << pi6 << std::endl;
+        std::cout << "Time taken: " << execTime6 << " seconds\n\n";
 
-    double pi6{};
-    auto execTime6 = MeasureTime([&pi6]() {
-        pi6 = CalculatePiMultithreadedWithPolicy(ITERATIONS, std::thread::hardware_concurrency(), std::execution::seq);
-        });
+        double pi7{};
+        auto execTime7 = MeasureTime([&pi7]() {
+            pi7 = CalculatePiMultithreadedWithPolicy(ITERATIONS, threadsCount, std::execution::par_unseq);
+            });
 
-    std::cout << "Sequential execution policy:\n";
-    std::cout << "Result: " << pi6 << std::endl;
-    std::cout << "Time taken: " << execTime6 << " seconds\n\n";
+        std::cout << "Parallel unsequenced execution policy:\n";
+        std::cout << "Result: " << pi7 << std::endl;
+        std::cout << "Time taken: " << execTime7 << " seconds\n\n";
 
-    double pi7{};
-    auto execTime7 = MeasureTime([&pi7]() {
-        pi7 = CalculatePiMultithreadedWithPolicy(ITERATIONS, std::thread::hardware_concurrency(), std::execution::par_unseq);
-        });
+        double pi8{};
+        auto execTime8 = MeasureTime([&pi8]() {
+            pi8 = CalculatePiMultithreadedWithPolicy(ITERATIONS, threadsCount, std::execution::unseq);
+            });
 
-    std::cout << "Parallel unsequenced execution policy:\n";
-    std::cout << "Result: " << pi7 << std::endl;
-    std::cout << "Time taken: " << execTime7 << " seconds\n\n";
+        std::cout << "Unsequenced execution policy:\n";
+        std::cout << "Result: " << pi8 << std::endl;
+        std::cout << "Time taken: " << execTime8 << " seconds\n\n";
 
-    double pi8{};
-    auto execTime8 = MeasureTime([&pi8]() {
-        pi8 = CalculatePiMultithreadedWithPolicy(ITERATIONS, std::thread::hardware_concurrency(), std::execution::unseq);
-        });
-
-    std::cout << "Unsequenced execution policy:\n";
-    std::cout << "Result: " << pi8 << std::endl;
-    std::cout << "Time taken: " << execTime8 << " seconds\n\n";
+    }
+    catch (const std::exception& ex)
+    {
+        std::cerr << ex.what();
+    }
 
     return 0;
 }
